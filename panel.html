@@ -1,0 +1,80 @@
+<!doctype html>
+
+
+    WebRTC Audio Call
+
+
+    <h1>WebRTC Audio Call</h1>
+
+    <form id="joinForm">
+        <input type="text" id="roomID" placeholder="Enter Room ID" required />
+        <button type="submit">Join Room</button>
+    </form>
+
+    <h2>Room: <span id="currentRoom">None</span></h2>
+    <audio id="remoteAudio" controls autoplay></audio>
+
+    <script src="https://cdn.socket.io/4.7.1/socket.io.min.js"></script>
+    <script>
+        const socket = io('https://gold-foregoing-change.glitch.me/'); // Glitch server ka URL yaha daalein
+        let localStream;
+        let peerConnection;
+        const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+        document.getElementById('joinForm').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const roomID = document.getElementById('roomID').value;
+            document.getElementById('currentRoom').innerText = roomID;
+            socket.emit('join', roomID);
+            start(roomID);
+        });
+
+        async function start(roomID) {
+            // Get audio stream from microphone
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            console.log('Microphone Access Granted');
+            
+            // Start WebRTC peer connection
+            peerConnection = new RTCPeerConnection(config);
+            peerConnection.addTrack(localStream.getAudioTracks()[0], localStream);
+
+            // Handle incoming audio stream
+            peerConnection.ontrack = (event) => {
+                const remoteAudio = document.getElementById('remoteAudio');
+                remoteAudio.srcObject = event.streams[0];
+                remoteAudio.play();
+            };
+
+            // Handle ICE candidates
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    socket.emit('candidate', { candidate: event.candidate, roomID });
+                }
+            };
+
+            // Handle incoming offer
+            socket.on('offer', async (offer) => {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                socket.emit('answer', { answer, roomID });
+            });
+
+            // Handle incoming answer
+            socket.on('answer', async (answer) => {
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+            });
+
+            // Handle incoming ICE candidate
+            socket.on('candidate', (candidate) => {
+                peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+            });
+
+            // Create and send offer
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            socket.emit('offer', { offer, roomID });
+        }
+    </script>
+
+</!doctype>
